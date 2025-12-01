@@ -21,6 +21,8 @@ from bleak_retry_connector import (
 )
 from Crypto.Cipher import AES
 
+from .manager import TuyaBLEDeviceCredentials
+
 from .const import (
     CHARACTERISTIC_NOTIFY,
     CHARACTERISTIC_WRITE,
@@ -38,13 +40,11 @@ from .exceptions import (
     TuyaBLEDeviceError,
     TuyaBLEEnumValueError,
 )
-from .manager import AbstaractTuyaBLEDeviceManager, TuyaBLEDeviceCredentials
 
 _LOGGER = logging.getLogger(__name__)
 
 
 BLEAK_EXCEPTIONS = (*BLEAK_RETRY_EXCEPTIONS, OSError)
-
 
 class TuyaBLEDataPoint:
     def __init__(
@@ -211,13 +211,11 @@ global_connect_lock = asyncio.Lock()
 class TuyaBLEDevice:
     def __init__(
         self,
-        device_manager: AbstaractTuyaBLEDeviceManager,
+        device_info: TuyaBLEDeviceCredentials,
         ble_device: BLEDevice,
         advertisement_data: AdvertisementData | None = None,
     ) -> None:
         """Init the TuyaBLE."""
-        self._device_manager = device_manager
-        self._device_info: TuyaBLEDeviceCredentials | None = None
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
         self._operation_lock = asyncio.Lock()
@@ -238,7 +236,7 @@ class TuyaBLEDevice:
         self._protocol_version_str: str = ""
         self._hardware_version: str = ""
 
-        self._device_info: TuyaBLEDeviceCredentials | None = None
+        self._device_info = device_info
 
         self._auth_key: bytes | None = None
         self._local_key: bytes | None = None
@@ -263,11 +261,11 @@ class TuyaBLEDevice:
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
 
-    async def initialize(self) -> None:
+    async def initialize(self) -> bool:
         _LOGGER.debug("%s: Initializing", self.address)
         if await self._update_device_info():
-            self._decode_advertisement_data()
-            
+            return self._decode_advertisement_data()
+        return False;
     def _build_pairing_request(self) -> bytes:
         result = bytearray()
 
@@ -294,18 +292,13 @@ class TuyaBLEDevice:
         await self._send_packet(TuyaBLECode.FUN_SENDER_DEVICE_STATUS, bytes())
 
     async def _update_device_info(self) -> bool:
-        if self._device_info is None:
-            if self._device_manager:
-                self._device_info = await self._device_manager.get_device_credentials(
-                    self._ble_device.address, False
-                )
-            if self._device_info:
-                self._local_key = self._device_info.local_key[:6].encode()
-                self._login_key = hashlib.md5(self._local_key).digest()
+        if self._device_info:
+            self._local_key = self._device_info.local_key[:6].encode()
+            self._login_key = hashlib.md5(self._local_key).digest()
 
         return self._device_info is not None
 
-    def _decode_advertisement_data(self) -> None:
+    def _decode_advertisement_data(self) -> bool:
         raw_product_id: bytes | None = None
         # raw_product_key: bytes | None = None
         raw_uuid: bytes | None = None
@@ -332,7 +325,10 @@ class TuyaBLEDevice:
                         key = hashlib.md5(raw_product_id).digest()
                         cipher = AES.new(key, AES.MODE_CBC, key)
                         raw_uuid = cipher.decrypt(raw_uuid)
-                        self._uuid = raw_uuid.decode("utf-8")
+                        uuid = raw_uuid.decode("utf-8")
+                        if uuid == self._device_info.uuid:
+                            return True
+        return False
 
     @property
     def address(self) -> str:
@@ -556,7 +552,7 @@ class TuyaBLEDevice:
             await asyncio.sleep(0.01)
             if self._client and self._client.is_connected and self._is_paired:
                 return
-            attempts_count = 100
+            attempts_count = 3
             while attempts_count > 0:
                 attempts_count -= 1
                 if attempts_count == 0:

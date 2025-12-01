@@ -1,7 +1,6 @@
 """The Tuya BLE integration."""
 from __future__ import annotations
 
-from homeassistant.backports.enum import StrEnum
 from typing_extensions import Final
 
 DOMAIN: Final = "tuya_ble"

@@ -17,10 +17,10 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
+from .cloud import HASSTuyaBLEDeviceManager
 
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
 from .tuya_ble import (
-    AbstaractTuyaBLEDeviceManager,
     TuyaBLEDataPoint,
     TuyaBLEDevice,
     TuyaBLEDeviceCredentials,
@@ -327,7 +327,7 @@ def get_short_address(address: str) -> str:
 
 async def get_device_readable_name(
     discovery_info: BluetoothServiceInfoBleak,
-    manager: AbstaractTuyaBLEDeviceManager | None,
+    manager: HASSTuyaBLEDeviceManager | None,
 ) -> str:
     credentials: TuyaBLEDeviceCredentials | None = None
     product_info: TuyaBLEProductInfo | None = None

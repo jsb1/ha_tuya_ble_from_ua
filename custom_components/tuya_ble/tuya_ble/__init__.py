@@ -8,13 +8,11 @@ from .const import (
     TuyaBLEDataPointType, 
 )
 from .manager import (
-    AbstaractTuyaBLEDeviceManager,
     TuyaBLEDeviceCredentials,
 )
 from .tuya_ble import TuyaBLEDataPoint, TuyaBLEDevice 
 
 __all__ = [
-    "AbstaractTuyaBLEDeviceManager",
     "TuyaBLEDataPoint",
     "TuyaBLEDataPointType",
     "TuyaBLEDevice",
