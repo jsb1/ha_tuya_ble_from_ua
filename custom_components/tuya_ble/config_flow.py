@@ -26,19 +26,12 @@ from homeassistant.data_entry_flow import FlowHandler, FlowResult
 from .tuya_ble import SERVICE_UUID, TuyaBLEDeviceCredentials, TuyaBLEDevice
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS, BleakNotFoundError, get_device
 
-from .const import (
-    DOMAIN,
-    CONF_PRODUCT_MODEL,
-    CONF_UUID,
-    CONF_LOCAL_KEY,
-    CONF_CATEGORY,
-    CONF_PRODUCT_ID,
+from .const import DOMAIN
+from .tuya_ble.const import (
     CONF_DEVICE_NAME,
-    CONF_PRODUCT_NAME,
-    CONF_LOCAL_STRATEGY,
 )
-from .devices import TuyaBLECoordinator, TuyaBLEData, get_device_readable_name
-from .cloud import HASSTuyaBLEDeviceManager
+
+from .tuya_ble.tuya_ble import HASSTuyaBLEDeviceManager
 
 _LOGGER = logging.getLogger(__name__)
 

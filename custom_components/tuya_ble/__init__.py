@@ -14,26 +14,12 @@ from homeassistant.exceptions import ConfigEntryNotReady
 
 from .tuya_ble import TuyaBLEDevice
 from .tuya_ble.manager import TuyaBLEDeviceCredentials
+from .tuya_ble.tuya_ble import HASSTuyaBLEDeviceManager
+from .tuya_ble.devices import TuyaBLECoordinator, TuyaBLEData
 
-from .cloud import HASSTuyaBLEDeviceManager
 from .const import DOMAIN
-from .devices import TuyaBLECoordinator, TuyaBLEData, get_device_product_info
 
-PLATFORMS: list[Platform] = [
-    Platform.BUTTON,
-    Platform.CLIMATE,
-    Platform.TEXT,
-    Platform.BINARY_SENSOR,
-    Platform.SELECT,
-    Platform.SWITCH,
-]
-"""
-    Platform.SENSOR,
-    Platform.NUMBER,
-]
-"""
 _LOGGER = logging.getLogger(__name__)
-
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tuya BLE from a config entry."""
@@ -49,9 +35,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     manager = HASSTuyaBLEDeviceManager(hass, data)
     device = TuyaBLEDevice(TuyaBLEDeviceCredentials(**data), ble_device)
     #await device.initialize()
-    product_info = get_device_product_info(device)
 
-    coordinator = TuyaBLECoordinator(hass, device)
+    coordinator = TuyaBLECoordinator(hass, device, DOMAIN)
 
     '''
     try:
@@ -85,21 +70,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = TuyaBLEData(
         entry.title,
         device,
-        product_info,
         manager,
         coordinator,
     )
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    #await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    #entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     async def _async_stop(event: Event) -> None:
         """Close the connection."""
         await device.stop()
 
-    entry.async_on_unload(
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop)
-    )
+    #entry.async_on_unload(
+    #    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop)
+    #)
     return True
 
 
@@ -112,8 +96,8 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        data: TuyaBLEData = hass.data[DOMAIN].pop(entry.entry_id)
-        await data.device.stop()
+#    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    data: TuyaBLEData = hass.data[DOMAIN].pop(entry.entry_id)
+    await data.device.stop()
 
-    return unload_ok
+    return True

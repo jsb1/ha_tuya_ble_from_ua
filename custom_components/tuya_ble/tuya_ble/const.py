@@ -15,7 +15,6 @@ MANUFACTURER_DATA_ID = 0x07D0
 
 RESPONSE_WAIT_TIMEOUT = 60
 
-
 class TuyaBLECode(Enum):
     FUN_SENDER_DEVICE_INFO = 0x0000
     FUN_SENDER_PAIR = 0x0001
@@ -52,3 +51,15 @@ class TuyaBLEDataPointType(Enum):
     DT_STRING = 3
     DT_ENUM = 4
     DT_BITMAP = 5
+
+CONF_UUID: Final = "uuid"
+CONF_LOCAL_KEY: Final = "local_key"
+CONF_CATEGORY: Final = "category"
+CONF_PRODUCT_ID: Final = "product_id"
+CONF_DEVICE_NAME: Final = "device_name"
+CONF_PRODUCT_MODEL: Final = "product_model"
+CONF_PRODUCT_NAME: Final = "product_name"
+CONF_LOCAL_STRATEGY: Final = "local_strategy"
+
+DEVICE_DEF_MANUFACTURER: Final = "Tuya"
+SET_DISCONNECTED_DELAY = 10 * 60

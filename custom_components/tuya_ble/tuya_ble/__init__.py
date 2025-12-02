@@ -10,11 +10,9 @@ from .const import (
 from .manager import (
     TuyaBLEDeviceCredentials,
 )
-from .tuya_ble import TuyaBLEDataPoint, TuyaBLEDevice 
+from .tuya_ble import TuyaBLEDevice 
 
 __all__ = [
-    "TuyaBLEDataPoint",
-    "TuyaBLEDataPointType",
     "TuyaBLEDevice",
     "TuyaBLEDeviceCredentials",
     "SERVICE_UUID",

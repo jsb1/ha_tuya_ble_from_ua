@@ -19,6 +19,12 @@ from bleak_retry_connector import (
     BleakNotFoundError,
     establish_connection,
 )
+from homeassistant.const import CONF_ADDRESS, CONF_DEVICE_ID
+from tuya_sharing.device import CustomerDevice
+from tuya_sharing.manager import Manager
+
+from homeassistant.components.tuya.const import DOMAIN as EXT_DOMAIN;
+
 from Crypto.Cipher import AES
 
 from .manager import TuyaBLEDeviceCredentials
@@ -31,7 +37,16 @@ from .const import (
     RESPONSE_WAIT_TIMEOUT,
     SERVICE_UUID,
     TuyaBLECode,
-    TuyaBLEDataPointType,
+)
+from .const import (
+    CONF_PRODUCT_MODEL,
+    CONF_UUID,
+    CONF_LOCAL_KEY,
+    CONF_CATEGORY,
+    CONF_PRODUCT_ID,
+    CONF_DEVICE_NAME,
+    CONF_PRODUCT_NAME,
+    CONF_LOCAL_STRATEGY,
 )
 from .exceptions import (
     TuyaBLEDataCRCError,
@@ -45,165 +60,6 @@ _LOGGER = logging.getLogger(__name__)
 
 
 BLEAK_EXCEPTIONS = (*BLEAK_RETRY_EXCEPTIONS, OSError)
-
-class TuyaBLEDataPoint:
-    def __init__(
-        self,
-        owner: TuyaBLEDataPoints,
-        id: int,
-        timestamp: float,
-        flags: int,
-        type: TuyaBLEDataPointType,
-        value: bytes | bool | int | str,
-    ) -> None:
-        self._owner = owner
-        self._id = id
-        self._value = value
-        self._changed_by_device = False
-        self._update_from_device(timestamp, flags, type, value)
-
-    def _update_from_device(
-        self,
-        timestamp: float,
-        flags: int,
-        type: TuyaBLEDataPointType,
-        value: bytes | bool | int | str,
-    ) -> None:
-        self._timestamp = timestamp
-        self._flags = flags
-        self._type = type
-        self._changed_by_device = self._value != value
-        self._value = value
-
-    def _get_value(self) -> bytes:
-        match self._type:
-            case TuyaBLEDataPointType.DT_RAW | TuyaBLEDataPointType.DT_BITMAP:
-                return self._value
-            case TuyaBLEDataPointType.DT_BOOL:
-                return pack(">B", 1 if self._value else 0)
-            case TuyaBLEDataPointType.DT_VALUE:
-                return pack(">i", self._value)
-            case TuyaBLEDataPointType.DT_ENUM:
-                if self._value > 0xFFFF:
-                    return pack(">I", self._value)
-                elif self._value > 0xFF:
-                    return pack(">H", self._value)
-                else:
-                    return pack(">B", self._value)
-            case TuyaBLEDataPointType.DT_STRING:
-                return self._value.encode()
-
-    @property
-    def id(self) -> int:
-        return self._id
-
-    @property
-    def timestamp(self) -> float:
-        return self._timestamp
-
-    @property
-    def flags(self) -> int:
-        return self._flags
-
-    @property
-    def type(self) -> TuyaBLEDataPointType:
-        return self._type
-
-    @property
-    def value(self) -> bytes | bool | int | str:
-        return self._value
-
-    @property
-    def changed_by_device(self) -> bool:
-        return self._changed_by_device
-
-    async def set_value(self, value: bytes | bool | int | str) -> None:
-        match self._type:
-            case TuyaBLEDataPointType.DT_RAW | TuyaBLEDataPointType.DT_BITMAP:
-                self._value = bytes(value)
-            case TuyaBLEDataPointType.DT_BOOL:
-                self._value = bool(value)
-            case TuyaBLEDataPointType.DT_VALUE:
-                self._value = int(value)
-            case TuyaBLEDataPointType.DT_ENUM:
-                value = int(value)
-                if value >= 0:
-                    self._value = value
-                else:
-                    raise TuyaBLEEnumValueError()
-
-            case TuyaBLEDataPointType.DT_STRING:
-                self._value = str(value)
-
-        self._changed_by_device = False
-        await self._owner._update_from_user(self._id)
-
-
-class TuyaBLEDataPoints:
-    def __init__(self, owner: TuyaBLEDevice) -> None:
-        self._owner = owner
-        self._datapoints: dict[int, TuyaBLEDataPoint] = {}
-        self._update_started: int = 0
-        self._updated_datapoints: list[int] = []
-
-    def __len__(self) -> int:
-        return len(self._datapoints)
-
-    def __getitem__(self, key: int) -> TuyaBLEDataPoint | None:
-        return self._datapoints.get(key)
-
-    def has_id(self, id: int, type: TuyaBLEDataPointType | None = None) -> bool:
-        return (id in self._datapoints) and (
-            (type is None) or (self._datapoints[id].type == type)
-        )
-
-    def get_or_create(
-        self,
-        id: int,
-        type: TuyaBLEDataPointType,
-        value: bytes | bool | int | str | None = None,
-    ) -> TuyaBLEDataPoint:
-        datapoint = self._datapoints.get(id)
-        if datapoint:
-            return datapoint
-        datapoint = TuyaBLEDataPoint(self, id, time.time(), 0, type, value)
-        self._datapoints[id] = datapoint
-        return datapoint
-
-    def begin_update(self) -> None:
-        self._update_started += 1
-
-    async def end_update(self) -> None:
-        if self._update_started > 0:
-            self._update_started -= 1
-            if self._update_started == 0 and len(self._updated_datapoints) > 0:
-                await self._owner._send_datapoints(self._updated_datapoints)
-                self._updated_datapoints = []
-
-    def _update_from_device(
-        self,
-        dp_id: int,
-        timestamp: float,
-        flags: int,
-        type: TuyaBLEDataPointType,
-        value: bytes | bool | int | str,
-    ) -> None:
-        dp = self._datapoints.get(dp_id)
-        if dp:
-            dp._update_from_device(timestamp, flags, type, value)
-        else:
-            self._datapoints[dp_id] = TuyaBLEDataPoint(
-                self, dp_id, timestamp, flags, type, value
-            )
-
-    async def _update_from_user(self, dp_id: int) -> None:
-        if self._update_started > 0:
-            if dp_id in self._updated_datapoints:
-                self._updated_datapoints.remove(dp_id)
-            self._updated_datapoints.append(dp_id)
-        else:
-            await self._owner._send_datapoints([dp_id])
-
 
 global_connect_lock = asyncio.Lock()
 
@@ -251,8 +107,6 @@ class TuyaBLEDevice:
         self._input_expected_responses: dict[int,
                                              asyncio.Future[int] | None] = {}
         # self._input_future: asyncio.Future[int] | None = None
-
-        self._datapoints = TuyaBLEDataPoints(self)
 
     def set_ble_device_and_advertisement_data(
         self, ble_device: BLEDevice, advertisement_data: AdvertisementData
@@ -410,19 +264,6 @@ class TuyaBLEDevice:
     @property
     def protocol_version(self) -> str:
         return self._protocol_version_str
-
-    @property
-    def datapoints(self) -> TuyaBLEDataPoints:
-        """Get datapoints exposed by device."""
-        return self._datapoints
-
-    def get_or_create_datapoint(
-        self,
-        id: int,
-        type: TuyaBLEDataPointType,
-        value: bytes | bool | int | str | None = None,
-    ) -> TuyaBLEDataPoint:
-        """Get datapoints exposed by device."""
 
     def _fire_connected_callbacks(self) -> None:
         """Fire the callbacks."""
@@ -1302,3 +1143,93 @@ class TuyaBLEDevice:
             await self._send_datapoints_v3(datapoint_ids)
         else:
             raise TuyaBLEDeviceError(0)
+
+def customerDevice_to_dict(dev: CustomerDevice):
+    return {
+        CONF_UUID: dev.uuid,
+        CONF_LOCAL_KEY: dev.local_key,
+        CONF_DEVICE_ID: dev.id,
+        CONF_CATEGORY: dev.category,
+        CONF_PRODUCT_ID: dev.product_id,
+        CONF_DEVICE_NAME: dev.name,
+        CONF_PRODUCT_MODEL: dev.product_id,
+        CONF_PRODUCT_NAME: dev.product_name,
+        CONF_LOCAL_STRATEGY: dev.local_strategy,
+    }
+
+class HASSTuyaBLEDeviceManager:
+    """Cloud connected manager of the Tuya BLE devices credentials."""
+
+    def __init__(self, hass: HomeAssistant, data: dict[str, Any]) -> None:
+        assert hass is not None
+        self._hass = hass
+        self._data = data
+        self._cache = {}
+        self._mac_mapping = {}
+        self._search_in_progress = set()
+        self._search_failed = {}
+
+    async def get_device_credentials(
+        self,
+        address: str,
+        force_update: bool = False,
+        save_data: bool = False,
+    ) -> TuyaBLEDeviceCredentials | None:
+
+        credentials=None
+        if credentials:
+            result = TuyaBLEDeviceCredentials(
+                credentials
+            )
+            _LOGGER.debug("Retrieved: %s", result)
+            item = None
+            if save_data:
+                if item:
+                    self._data.update(item.login)
+                self._data.update(credentials)
+
+        return credentials
+
+    async def get_devices_credentials(
+        self,
+    ) -> TuyaBLEDeviceCredentials | None:
+        """Get credentials of the Tuya BLE device."""
+        result: list[TuyaBLEDeviceCredentials] | None = None
+        dev: CustomerDevice
+
+        self.build_cache()
+        return [
+            TuyaBLEDeviceCredentials(
+                credentials.get(CONF_UUID, ""),
+                credentials.get(CONF_LOCAL_KEY, ""),
+                credentials.get(CONF_DEVICE_ID, ""),
+                credentials.get(CONF_CATEGORY, ""),
+                credentials.get(CONF_PRODUCT_ID, ""),
+                credentials.get(CONF_DEVICE_NAME, ""),
+                credentials.get(CONF_PRODUCT_MODEL, ""),
+                credentials.get(CONF_PRODUCT_NAME, ""),
+            ) for credentials in self._cache.values()
+        ]
+
+    def build_cache(self):
+        manager: Manager
+        tuyaconfigentries = self._hass.config_entries.async_loaded_entries(EXT_DOMAIN)
+        for entry in tuyaconfigentries:
+            manager = entry.runtime_data.manager
+            for device in manager.device_map.values():
+                self._cache[device.id]=customerDevice_to_dict(device)
+
+
+    async def find_device(self, ble_device, discovery_info):
+        self.build_cache()
+        for credentials in self._cache.values():
+            device_info = TuyaBLEDeviceCredentials(**credentials)
+            try_device = TuyaBLEDevice(device_info, ble_device, discovery_info)
+            if await try_device.initialize():
+                self._mac_mapping[discovery_info.address] = credentials
+                return credentials
+        return None
+
+    @property
+    def data(self) -> dict[str, Any]:
+        return self._data
