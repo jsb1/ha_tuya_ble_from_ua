@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import pycountry
 from typing import Any
 
 import voluptuous as vol
@@ -23,7 +21,6 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowHandler, FlowResult
 
-from .tuya_ble import SERVICE_UUID, TuyaBLEDeviceCredentials, TuyaBLEDevice
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS, BleakNotFoundError, get_device
 
 from .const import DOMAIN
@@ -31,7 +28,7 @@ from .tuya_ble.const import (
     CONF_DEVICE_NAME,
 )
 
-from .tuya_ble.tuya_ble import HASSTuyaBLEDeviceManager
+from .tuya_ble.manager import HASSTuyaBLEDeviceManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,17 +72,14 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 #        self._abort_if_unique_id_configured()
         self._discovery_info = discovery_info
         if self._manager is None:
-            self._manager = HASSTuyaBLEDeviceManager(self.hass, self._data)
+            self._manager = HASSTuyaBLEDeviceManager(self.hass)
         self.context["title_placeholders"] = {
             "name": f"({discovery_info.address})",
             "discovery_info":  discovery_info,
         }
         self._discovered_devices[discovery_info.address] = discovery_info
-        ble_device = bluetooth.async_ble_device_from_address(
-            self.hass, discovery_info.address.upper(), True
-        ) or await get_device(discovery_info.address)
 
-        cred = await self._manager.find_device(ble_device, discovery_info)
+        cred = await self._manager.find_device(discovery_info)
         if not cred:
             return await self.async_abort("device not found")
 

@@ -1,6 +1,7 @@
 """The Tuya BLE integration."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS, get_device
@@ -12,31 +13,32 @@ from homeassistant.const import CONF_ADDRESS, EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .tuya_ble import TuyaBLEDevice
-from .tuya_ble.manager import TuyaBLEDeviceCredentials
-from .tuya_ble.tuya_ble import HASSTuyaBLEDeviceManager
-from .tuya_ble.devices import TuyaBLECoordinator, TuyaBLEData
+from .tuya_ble.ble import TuyaBLEDevice, TuyaBLEDeviceCredentials
+from .tuya_ble.manager import HASSTuyaBLEDeviceManager, TuyaBLECoordinator
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+@dataclass
+class TuyaBLEData:
+    """Data for the Tuya BLE integration."""
+
+    title: str
+    device: TuyaBLEDevice
+    manager: HASSTuyaBLEDeviceManager
+    coordinator: TuyaBLECoordinator
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tuya BLE from a config entry."""
     address: str = entry.data[CONF_ADDRESS]
-    ble_device = bluetooth.async_ble_device_from_address(
-        hass, address.upper(), True
-    ) or await get_device(address)
-    if not ble_device:
-        raise ConfigEntryNotReady(
-            f"Could not find Tuya BLE device with address {address}"
-        )
+
     data = entry.options.copy()
-    manager = HASSTuyaBLEDeviceManager(hass, data)
-    device = TuyaBLEDevice(TuyaBLEDeviceCredentials(**data), ble_device)
+    manager = HASSTuyaBLEDeviceManager(hass)
+    device = await manager.create_device(address, data)
     #await device.initialize()
 
-    coordinator = TuyaBLECoordinator(hass, device, DOMAIN)
+    coordinator = TuyaBLECoordinator(hass, device, address)
 
     '''
     try:
