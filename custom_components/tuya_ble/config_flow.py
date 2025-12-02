@@ -28,6 +28,14 @@ from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS as BLEAK_EXCEPTIONS, Bl
 
 from .const import (
     DOMAIN,
+    CONF_PRODUCT_MODEL,
+    CONF_UUID,
+    CONF_LOCAL_KEY,
+    CONF_CATEGORY,
+    CONF_PRODUCT_ID,
+    CONF_DEVICE_NAME,
+    CONF_PRODUCT_NAME,
+    CONF_LOCAL_STRATEGY,
 )
 from .devices import TuyaBLECoordinator, TuyaBLEData, get_device_readable_name
 from .cloud import HASSTuyaBLEDeviceManager
@@ -69,7 +77,8 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         self, discovery_info: BluetoothServiceInfoBleak
     ) -> FlowResult:
         """Handle the bluetooth discovery step."""
-        await self.async_set_unique_id(discovery_info.address)
+        address = discovery_info.address
+        await self.async_set_unique_id(address)
 #        self._abort_if_unique_id_configured()
         self._discovery_info = discovery_info
         if self._manager is None:
@@ -89,40 +98,17 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
 
-        address = discovery_info.address
         discovery_info = self._discovered_devices[address]
-        local_name = cred.device_name
+        local_name = cred[CONF_DEVICE_NAME]
         await self.async_set_unique_id(
             discovery_info.address, raise_on_progress=False
         )
-        self._abort_if_unique_id_configured()
+#        self._abort_if_unique_id_configured()
         self._data[CONF_ADDRESS] = discovery_info.address
         return self.async_create_entry(
             title=local_name,
             data={CONF_ADDRESS: discovery_info.address},
-            options=self._data,
-        )
-
-
-        return self.async_show_form(
-            step_id="device",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_ADDRESS,
-                        default=def_address,
-                    ): vol.In(
-                        {
-                            service_info.address: await get_device_readable_name(
-                                service_info,
-                                self._manager,
-                            )
-                            for service_info in self._discovered_devices.values()
-                        }
-                    ),
-                },
-            ),
-            errors=errors,
+            options=cred,
         )
 
     @staticmethod

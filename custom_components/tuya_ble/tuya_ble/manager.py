@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
-@dataclass
+#@dataclass
 class TuyaBLEDeviceCredentials:
     uuid: str
     local_key: str
@@ -14,6 +14,11 @@ class TuyaBLEDeviceCredentials:
     device_name: str | None
     product_model: str | None
     product_name: str | None
+    local_strategy: str | None
+
+    def __init__(self, **kwargs):
+        for key in kwargs:
+            self.__setattr__(key, kwargs.get(key, ""))
 
     def __str__(self):
         return (

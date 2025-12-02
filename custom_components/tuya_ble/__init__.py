@@ -13,6 +13,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .tuya_ble import TuyaBLEDevice
+from .tuya_ble.manager import TuyaBLEDeviceCredentials
 
 from .cloud import HASSTuyaBLEDeviceManager
 from .const import DOMAIN
@@ -21,14 +22,16 @@ from .devices import TuyaBLECoordinator, TuyaBLEData, get_device_product_info
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.CLIMATE,
-    Platform.NUMBER,
-    Platform.SENSOR,
+    Platform.TEXT,
     Platform.BINARY_SENSOR,
     Platform.SELECT,
     Platform.SWITCH,
-    Platform.TEXT,
 ]
-
+"""
+    Platform.SENSOR,
+    Platform.NUMBER,
+]
+"""
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -42,8 +45,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(
             f"Could not find Tuya BLE device with address {address}"
         )
-    manager = HASSTuyaBLEDeviceManager(hass, entry.options.copy())
-    device = TuyaBLEDevice(manager, ble_device)
+    data = entry.options.copy()
+    manager = HASSTuyaBLEDeviceManager(hass, data)
+    device = TuyaBLEDevice(TuyaBLEDeviceCredentials(**data), ble_device)
     #await device.initialize()
     product_info = get_device_product_info(device)
 

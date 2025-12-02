@@ -32,10 +32,7 @@ from .const import (
     CONF_PRODUCT_ID,
     CONF_DEVICE_NAME,
     CONF_PRODUCT_NAME,
-    DOMAIN,
-    TUYA_API_DEVICES_URL,
-    TUYA_API_FACTORY_INFO_URL,
-    TUYA_FACTORY_INFO_MAC,
+    CONF_LOCAL_STRATEGY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,6 +48,19 @@ CONF_TUYA_DEVICE_KEYS = [
     CONF_PRODUCT_NAME,
     CONF_PRODUCT_MODEL,
 ]
+
+def customerDevice_to_dict(dev: CustomerDevice):
+    return {
+        CONF_UUID: dev.uuid,
+        CONF_LOCAL_KEY: dev.local_key,
+        CONF_DEVICE_ID: dev.id,
+        CONF_CATEGORY: dev.category,
+        CONF_PRODUCT_ID: dev.product_id,
+        CONF_DEVICE_NAME: dev.name,
+        CONF_PRODUCT_MODEL: dev.product_id,
+        CONF_PRODUCT_NAME: dev.product_name,
+        CONF_LOCAL_STRATEGY: dev.local_strategy,
+    }
 
 class HASSTuyaBLEDeviceManager:
     """Cloud connected manager of the Tuya BLE devices credentials."""
@@ -74,14 +84,7 @@ class HASSTuyaBLEDeviceManager:
         credentials=None
         if credentials:
             result = TuyaBLEDeviceCredentials(
-                credentials.get(CONF_UUID, ""),
-                credentials.get(CONF_LOCAL_KEY, ""),
-                credentials.get(CONF_DEVICE_ID, ""),
-                credentials.get(CONF_CATEGORY, ""),
-                credentials.get(CONF_PRODUCT_ID, ""),
-                credentials.get(CONF_DEVICE_NAME, ""),
-                credentials.get(CONF_PRODUCT_MODEL, ""),
-                credentials.get(CONF_PRODUCT_NAME, ""),
+                credentials
             )
             _LOGGER.debug("Retrieved: %s", result)
             item = None
@@ -102,15 +105,15 @@ class HASSTuyaBLEDeviceManager:
         self.build_cache()
         return [
             TuyaBLEDeviceCredentials(
-                dev.uuid, 
-                dev.local_key, 
-                dev.id, 
-                dev.category, 
-                dev. product_id,
-                dev.name, 
-                dev.product_id, 
-                dev.product_name
-            ) for dev in self._cache.values()
+                credentials.get(CONF_UUID, ""),
+                credentials.get(CONF_LOCAL_KEY, ""),
+                credentials.get(CONF_DEVICE_ID, ""),
+                credentials.get(CONF_CATEGORY, ""),
+                credentials.get(CONF_PRODUCT_ID, ""),
+                credentials.get(CONF_DEVICE_NAME, ""),
+                credentials.get(CONF_PRODUCT_MODEL, ""),
+                credentials.get(CONF_PRODUCT_NAME, ""),
+            ) for credentials in self._cache.values()
         ]
 
     def build_cache(self):
@@ -118,14 +121,18 @@ class HASSTuyaBLEDeviceManager:
         tuyaconfigentries = self._hass.config_entries.async_loaded_entries(EXT_DOMAIN)
         for entry in tuyaconfigentries:
             manager = entry.runtime_data.manager
-            self._cache = self._cache | manager.device_map
+            for device in manager.device_map.values():
+                self._cache[device.id]=customerDevice_to_dict(device)
+
 
     async def find_device(self, ble_device, discovery_info):
-        for cred in await self.get_devices_credentials():
-            try_device = TuyaBLEDevice(cred, ble_device, discovery_info)
+        self.build_cache()
+        for credentials in self._cache.values():
+            device_info = TuyaBLEDeviceCredentials(**credentials)
+            try_device = TuyaBLEDevice(device_info, ble_device, discovery_info)
             if await try_device.initialize():
-                self._mac_mapping[discovery_info.address] = cred
-                return cred
+                self._mac_mapping[discovery_info.address] = credentials
+                return credentials
         return None
 
     @property
