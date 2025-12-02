@@ -28,7 +28,8 @@ from .tuya_ble.const import (
     CONF_DEVICE_NAME,
 )
 
-from .tuya_ble.manager import HASSTuyaBLEDeviceManager
+from .tuya_ble.manager import TuyaBLEDeviceManager
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,10 +58,7 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         super().__init__()
-        self._discovery_info: BluetoothServiceInfoBleak | None = None
-        self._discovered_devices: dict[str, BluetoothServiceInfoBleak] = {}
-        self._data: dict[str, Any] = {}
-        self._manager: HASSTuyaBLEDeviceManager | None = None
+        self._manager: TuyaBLEDeviceManager | None = None
         self._get_device_info_error = False
 
     async def async_step_bluetooth(
@@ -69,15 +67,13 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the bluetooth discovery step."""
         address = discovery_info.address
         await self.async_set_unique_id(address)
-#        self._abort_if_unique_id_configured()
-        self._discovery_info = discovery_info
+        #self._abort_if_unique_id_configured()
         if self._manager is None:
-            self._manager = HASSTuyaBLEDeviceManager(self.hass)
+            self._manager = TuyaBLEDeviceManager(self.hass)
         self.context["title_placeholders"] = {
             "name": f"({discovery_info.address})",
             "discovery_info":  discovery_info,
         }
-        self._discovered_devices[discovery_info.address] = discovery_info
 
         cred = await self._manager.find_device(discovery_info)
         if not cred:
@@ -85,13 +81,11 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
 
-        discovery_info = self._discovered_devices[address]
         local_name = cred[CONF_DEVICE_NAME]
         await self.async_set_unique_id(
             discovery_info.address, raise_on_progress=False
         )
-#        self._abort_if_unique_id_configured()
-        self._data[CONF_ADDRESS] = discovery_info.address
+
         return self.async_create_entry(
             title=local_name,
             data={CONF_ADDRESS: discovery_info.address},

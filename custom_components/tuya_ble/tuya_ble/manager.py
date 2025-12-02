@@ -7,7 +7,7 @@ import sys
 import traceback
 from typing import Any
 
-from homeassistant.components.bluetooth.active_update_coordinator import ActiveBluetoothDataUpdateCoordinator
+from homeassistant.components.bluetooth.active_update_coordinator import ActiveBluetoothDataUpdateCoordinator, BluetoothServiceInfoBleak
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -49,7 +49,7 @@ def customerDevice_to_dict(dev: CustomerDevice):
         CONF_LOCAL_STRATEGY: dev.local_strategy,
     }
 
-class HASSTuyaBLEDeviceManager:
+class TuyaBLEDeviceManager:
     """Cloud connected manager of the Tuya BLE devices credentials."""
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -139,21 +139,32 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[None]):
 
     def __init__(self, hass: HomeAssistant, device: TuyaBLEDevice, address: str) -> None:
         """Initialise the coordinator."""
-        super().__init__(
-            hass,
-            _LOGGER,
-            address = address,
-            needs_poll_method=self._needs_poll,
-            poll_method=self._async_update,
-            mode=bluetooth.BluetoothScanningMode.ACTIVE,
-            connectable=True,
-        )
         self._device = device
         self._disconnected: bool = True
         self._unsub_disconnect: CALLBACK_TYPE | None = None
         device.register_connected_callback(self._async_handle_connect)
         device.register_callback(self._async_handle_update)
         device.register_disconnected_callback(self._async_handle_disconnect)
+
+        def _needs_poll(
+            service_info: BluetoothServiceInfoBleak, last_poll: float | None
+        ) -> bool:
+            return (
+                hass.state == CoreState.running
+            )
+
+        async def _async_poll(service_info: BluetoothServiceInfoBleak):
+            value=service_info
+
+        super().__init__(
+            hass,
+            _LOGGER,
+            address = address,
+            needs_poll_method=_needs_poll,
+            poll_method=_async_poll,
+            mode=bluetooth.BluetoothScanningMode.PASSIVE,
+            connectable=True,
+        )
 
     @property
     def connected(self) -> bool:
@@ -189,30 +200,6 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[None]):
                 self.hass, delay, self._set_disconnected
             )
 
-    @callback
-    def _needs_poll(
-        self,
-        service_info: bluetooth.BluetoothServiceInfoBleak,
-        seconds_since_last_poll: float | None,
-    ) -> bool:
-        return True
-        """
-        return (
-            self.hass.state == CoreState.running
-            and self.device.poll_needed(seconds_since_last_poll)
-            and bool(
-                bluetooth.async_ble_device_from_address(
-                    self.hass, service_info.device.address, connectable=True
-                )
-            )
-        )
-        """
-    @callback
-    async def _async_update(
-        self, service_info: bluetooth.BluetoothServiceInfoBleak
-    ) -> None:
-        value=service_info
-        """Poll the device."""
 
 
 def get_short_address(address: str) -> str:

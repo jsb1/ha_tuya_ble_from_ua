@@ -7,6 +7,7 @@ import secrets
 import time
 from collections.abc import Callable
 from struct import pack, unpack
+from typing import Any
 
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
@@ -97,7 +98,7 @@ class TuyaBLEDevice:
         self._client: BleakClientWithServiceCache | None = None
         self._expected_disconnect = False
         self._connected_callbacks: list[Callable[[], None]] = []
-        self._callbacks: list[Callable[[list[TuyaBLEDataPoint]], None]] = []
+        self._callbacks: list[Callable[[list[Any]], None]] = []
         self._disconnected_callbacks: list[Callable[[], None]] = []
         self._current_seq_num = 1
         self._seq_num_lock = asyncio.Lock()
@@ -299,14 +300,14 @@ class TuyaBLEDevice:
         self._connected_callbacks.append(callback)
         return unregister_callback
 
-    def _fire_callbacks(self, datapoints: list[TuyaBLEDataPoint]) -> None:
+    def _fire_callbacks(self, datapoints: list[Any]) -> None:
         """Fire the callbacks."""
         for callback in self._callbacks:
             callback(datapoints)
 
     def register_callback(
         self,
-        callback: Callable[[list[TuyaBLEDataPoint]], None],
+        callback: Callable[[list[Any]], None],
     ) -> Callable[[], None]:
         """Register a callback to be called when the state changes."""
 
@@ -335,7 +336,6 @@ class TuyaBLEDevice:
     async def start(self):
         """Start the TuyaBLE."""
         _LOGGER.debug("%s: Starting...", self.address)
-        # await self._send_packet()
 
     async def stop(self) -> None:
         """Stop the TuyaBLE."""

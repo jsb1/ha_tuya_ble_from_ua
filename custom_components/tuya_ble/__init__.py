@@ -14,7 +14,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .tuya_ble.ble import TuyaBLEDevice, TuyaBLEDeviceCredentials
-from .tuya_ble.manager import HASSTuyaBLEDeviceManager, TuyaBLECoordinator
+from .tuya_ble.manager import TuyaBLEDeviceManager, TuyaBLECoordinator
 
 from .const import DOMAIN
 
@@ -26,54 +26,26 @@ class TuyaBLEData:
 
     title: str
     device: TuyaBLEDevice
-    manager: HASSTuyaBLEDeviceManager
+    manager: TuyaBLEDeviceManager
     coordinator: TuyaBLECoordinator
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tuya BLE from a config entry."""
     address: str = entry.data[CONF_ADDRESS]
 
-    data = entry.options.copy()
-    manager = HASSTuyaBLEDeviceManager(hass)
-    device = await manager.create_device(address, data)
-    #await device.initialize()
-
+    manager = TuyaBLEDeviceManager(hass)
+    device = await manager.create_device(address, entry.options)
     coordinator = TuyaBLECoordinator(hass, device, address)
-
-    '''
-    try:
-        await device.update()
-    except BLEAK_EXCEPTIONS as ex:
-        raise ConfigEntryNotReady(
-            f"Could not communicate with Tuya BLE device with address {address}"
-        ) from ex
-    '''
-#    hass.add_job(device.update())
-
-    @callback
-    def _async_update_ble(
-        service_info: bluetooth.BluetoothServiceInfoBleak,
-        change: bluetooth.BluetoothChange,
-    ) -> None:
-        """Update from a ble callback."""
-        device.set_ble_device_and_advertisement_data(
-            service_info.device, service_info.advertisement
-        )
-
-    entry.async_on_unload(
-        bluetooth.async_register_callback(
-            hass,
-            _async_update_ble,
-            BluetoothCallbackMatcher({ADDRESS: address}),
-            bluetooth.BluetoothScanningMode.ACTIVE,
-        )
-    )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = TuyaBLEData(
         entry.title,
         device,
         manager,
         coordinator,
+    )
+
+    entry.async_on_unload(
+        coordinator.async_start()
     )
 
     #await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -83,9 +55,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Close the connection."""
         await device.stop()
 
-    #entry.async_on_unload(
-    #    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop)
-    #)
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop)
+    )
     return True
 
 

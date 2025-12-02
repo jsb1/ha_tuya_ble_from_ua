@@ -10,7 +10,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
-from .manager import HASSTuyaBLEDeviceManager
+from .manager import TuyaBLEDeviceManager
 from .ble import TuyaBLEDevice
 
 from .const import (
