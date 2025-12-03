@@ -384,9 +384,9 @@ class TuyaBLEDevice:
             )
             asyncio.create_task(self._reconnect())
 
-    def _disconnect(self) -> None:
+    async def disconnect(self) -> None:
         """Disconnect from device."""
-        asyncio.create_task(self._execute_timed_disconnect())
+        await self._execute_timed_disconnect()
 
     async def _execute_timed_disconnect(self) -> None:
         """Execute timed disconnection."""
@@ -565,7 +565,7 @@ class TuyaBLEDevice:
             )
             await asyncio.sleep(BLEAK_BACKOFF_TIME)
             _LOGGER.debug("%s: Reconnecting again", self.address)
-            asyncio.create_task(self._reconnect())
+            await self._reconnect()
 
     @staticmethod
     def _calc_crc16(data: bytes) -> int:
@@ -794,9 +794,9 @@ class TuyaBLEDevice:
                 ex,
             )
             if self._is_paired:
-                asyncio.create_task(self._resend_packets(packets))
+                await self._resend_packets(packets)
             else:
-                asyncio.create_task(self._reconnect())
+                await self._reconnect()
             raise BleakError from ex
         except BleakError as ex:
             # Disconnect so we can reset state and try again
@@ -807,9 +807,9 @@ class TuyaBLEDevice:
                 ex,
             )
             if self._is_paired:
-                asyncio.create_task(self._resend_packets(packets))
+                await self._resend_packets(packets)
             else:
-                asyncio.create_task(self._reconnect())
+                await self._reconnect()
             raise
 
     async def _int_send_packets_locked(self, packets: list[bytes]) -> None:
@@ -927,7 +927,7 @@ class TuyaBLEDevice:
 
         self._fire_callbacks(datapoints)
 
-    def _handle_command_or_response(
+    async def _handle_command_or_response(
         self, seq_num: int, response_to: int, code: TuyaBLECode, data: bytes
     ) -> None:
         result: int = 0
@@ -974,7 +974,7 @@ class TuyaBLEDevice:
                 timestamp = int(time.time_ns() / 1000000)
                 timezone = -int(time.timezone / 36)
                 data = str(timestamp).encode() + pack(">h", timezone)
-                asyncio.create_task(self._send_response(code, data, seq_num))
+                await self._send_response(code, data, seq_num)
 
             case TuyaBLECode.FUN_RECEIVE_TIME2_REQ:
                 if len(data) != 0:
@@ -993,26 +993,25 @@ class TuyaBLEDevice:
                     time_str.tm_wday,
                     timezone,
                 )
-                asyncio.create_task(self._send_response(code, data, seq_num))
+                await self._send_response(code, data, seq_num)
 
             case TuyaBLECode.FUN_RECEIVE_DP:
                 self._parse_datapoints_v3(time.time(), 0, data, 0)
-                asyncio.create_task(self._send_response(code, bytes(0), seq_num))
+                await self._send_response(code, bytes(0), seq_num)
 
             case TuyaBLECode.FUN_RECEIVE_SIGN_DP:
                 dp_seq_num = int.from_bytes(data[:2], "big")
                 flags = data[2]
                 self._parse_datapoints_v3(time.time(), flags, data, 2)
                 data = pack(">HBB", dp_seq_num, flags, 0)
-                asyncio.create_task(self._send_response(code, data, seq_num))
+                await self._send_response(code, data, seq_num)
 
             case TuyaBLECode.FUN_RECEIVE_TIME_DP:
                 timestamp: float
                 pos: int
                 timestamp, pos = self._parse_timestamp(data, 0)
                 self._parse_datapoints_v3(timestamp, 0, data, pos)
-                asyncio.create_task(
-                    self._send_response(code, bytes(0), seq_num))
+                await self._send_response(code, bytes(0), seq_num)
 
             case TuyaBLECode.FUN_RECEIVE_SIGN_TIME_DP:
                 timestamp: float
@@ -1022,7 +1021,7 @@ class TuyaBLEDevice:
                 timestamp, pos = self._parse_timestamp(data, 3)
                 self._parse_datapoints_v3(time.time(), flags, data, pos)
                 data = pack(">HBB", dp_seq_num, flags, 0)
-                asyncio.create_task(self._send_response(code, data, seq_num))
+                await self._send_response(code, data, seq_num)
 
         if response_to != 0:
             future = self._input_expected_responses.pop(response_to, None)
@@ -1043,7 +1042,7 @@ class TuyaBLEDevice:
         self._input_expected_packet_num = 0
         self._input_expected_length = 0
 
-    def _parse_input(self) -> None:
+    async def _parse_input(self) -> None:
         security_flag = self._input_buffer[0]
         key = self._get_key(security_flag)
         iv = self._input_buffer[1:17]
@@ -1104,7 +1103,7 @@ class TuyaBLEDevice:
                 code.name,
             )
 
-        self._handle_command_or_response(seq_num, response_to, code, data)
+        await self._handle_command_or_response(seq_num, response_to, code, data)
 
     def _notification_handler(self, _sender: int, data: bytearray) -> None:
         """Handle notification responses."""
@@ -1152,7 +1151,7 @@ class TuyaBLEDevice:
             self._clean_input()
             return
         elif len(self._input_buffer) == self._input_expected_length:
-            self._parse_input()
+            asyncio.create_task(self._parse_input())
 
     async def _send_datapoints_v3(self, datapoint_ids: list[int]) -> None:
         """Send new values of datapoints to the device."""

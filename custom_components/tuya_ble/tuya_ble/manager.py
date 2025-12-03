@@ -170,7 +170,7 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
         ) -> bool:
             if self._connected and monotonic_time_coarse() > self._connect_stop_at:
                 if not self._device.expected_disconnect:
-                    self._device._disconnect()
+                    entry.async_create_task(hass, self._device.disconnect())
                 return False
             return (
                 not self._connected
@@ -195,8 +195,8 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
                 )
             self._device.set_device_and_advertisement_data(connectable_device, service_info.advertisement)
             self._next_poll = monotonic_time_coarse() + self._min_poll_interval
-            entry.async_create_task(hass, self._device.update())
-#            entry.async_create_task(hass, self._device.update_dp(1))
+            #entry.async_create_task(hass, self._device.update())
+            entry.async_create_task(hass, self._device.update_dp(2))
             return True
 
         super().__init__(
