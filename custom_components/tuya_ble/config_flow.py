@@ -28,7 +28,7 @@ from .tuya_ble.const import (
     CONF_DEVICE_NAME,
 )
 
-from .tuya_ble.manager import TuyaBLEDeviceManager
+from .tuya_ble.manager import TuyaBLEDeviceManager, shared_tuya_device_manager
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,7 +58,6 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         super().__init__()
-        self._manager: TuyaBLEDeviceManager | None = None
         self._get_device_info_error = False
 
     async def async_step_bluetooth(
@@ -67,27 +66,15 @@ class TuyaBLEConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the bluetooth discovery step."""
         address = discovery_info.address
         await self.async_set_unique_id(address)
-        #self._abort_if_unique_id_configured()
-        if self._manager is None:
-            self._manager = TuyaBLEDeviceManager(self.hass)
-        self.context["title_placeholders"] = {
-            "name": f"({discovery_info.address})",
-            "discovery_info":  discovery_info,
-        }
+        self._abort_if_unique_id_configured()
 
-        cred = await self._manager.find_device(discovery_info)
+        manager = shared_tuya_device_manager(self.hass)
+        cred = manager.find_device(discovery_info)
         if not cred:
-            return await self.async_abort("device not found")
-
-        errors: dict[str, str] = {}
-
-        local_name = cred[CONF_DEVICE_NAME]
-        await self.async_set_unique_id(
-            discovery_info.address, raise_on_progress=False
-        )
+            return await self.async_abort("device not found in tuya cloud")
 
         return self.async_create_entry(
-            title=local_name,
+            title=cred[CONF_DEVICE_NAME],
             data={CONF_ADDRESS: discovery_info.address},
             options=cred,
         )

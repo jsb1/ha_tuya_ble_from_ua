@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import asyncio
 from dataclasses import dataclass
 import logging
 import sys
 import traceback
 from typing import Any
 
+from bluetooth_data_tools import monotonic_time_coarse
+
 from homeassistant.components.bluetooth.active_update_coordinator import ActiveBluetoothDataUpdateCoordinator, BluetoothServiceInfoBleak
+from homeassistant.components.bluetooth.api import async_ble_device_from_address
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -48,6 +53,10 @@ def customerDevice_to_dict(dev: CustomerDevice):
         CONF_PRODUCT_NAME: dev.product_name,
         CONF_LOCAL_STRATEGY: dev.local_strategy,
     }
+
+def get_short_address(address: str) -> str:
+    results = address.replace("-", ":").upper().split(":")
+    return f"{results[-3]}{results[-2]}{results[-1]}"[-6:]
 
 class TuyaBLEDeviceManager:
     """Cloud connected manager of the Tuya BLE devices credentials."""
@@ -111,50 +120,84 @@ class TuyaBLEDeviceManager:
                 self._cache[device.id]=customerDevice_to_dict(device)
 
 
-    async def find_device(self, discovery_info):
+    def find_device(self, discovery_info):
 
         self.build_cache()
-        ble_device = bluetooth.async_ble_device_from_address(
-            self._hass, discovery_info.address.upper(), True
-        ) or await get_device(discovery_info.address)
-
         for credentials in self._cache.values():
             device_info = TuyaBLEDeviceCredentials(**credentials)
-            try_device = TuyaBLEDevice(device_info, ble_device, discovery_info)
-            if await try_device.initialize():
+            try_device = TuyaBLEDevice(device_info, discovery_info)
+            if try_device.initialize():
                 self._mac_mapping[discovery_info.address] = credentials
                 return credentials
         return None
     
-    async def create_device(self, address: str, data: dict[str, Any]):
-        ble_device = bluetooth.async_ble_device_from_address(
-            self._hass, address.upper(), True
-        ) or await get_device(address)
-
+    def create_device(self, address: str, data: dict[str, Any]):
+        if CONF_LOCAL_KEY not in data:
+            return None
         device_info = TuyaBLEDeviceCredentials(**data)
-        return TuyaBLEDevice(device_info, ble_device)
+        return TuyaBLEDevice(device_info)
 
-class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[None]):
+def shared_tuya_device_manager(hass: HomeAssistant) -> TuyaBLEDeviceManager:
+    domain_key: str = '_tuya_ble_hack' # TODO
+    if domain_key not in hass.data:
+        hass.data[domain_key] = {}
+    key: str = "TuyaBLEDeviceManager_instance"
+    if key in hass.data[domain_key]:
+        return hass.data[domain_key][key]
+    manager: TuyaBLEDeviceManager = TuyaBLEDeviceManager(hass)
+    hass.data[domain_key][key] = manager
+    return manager
+
+class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
     """Data coordinator for receiving Tuya BLE updates."""
-
-    def __init__(self, hass: HomeAssistant, device: TuyaBLEDevice, address: str) -> None:
+   
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, address: str, options: dict[str, Any]) -> None:
         """Initialise the coordinator."""
-        self._device = device
-        self._disconnected: bool = True
-        self._unsub_disconnect: CALLBACK_TYPE | None = None
-        device.register_connected_callback(self._async_handle_connect)
-        device.register_callback(self._async_handle_update)
-        device.register_disconnected_callback(self._async_handle_disconnect)
+        manager = shared_tuya_device_manager(hass)
+        self._entry = entry
+        self._device = manager.create_device(address, options)
+        self._connected: bool = False
+        self._device.register_connected_callback(self._async_handle_connect)
+        self._device.register_callback(self._async_handle_update)
+        self._device.register_disconnected_callback(self._async_handle_disconnect)
+        self._min_poll_interval = 60
+        self._next_poll = monotonic_time_coarse()
+        self._max_connect_time = 10
+        self._connect_stop_at = monotonic_time_coarse()+self._max_connect_time
 
         def _needs_poll(
             service_info: BluetoothServiceInfoBleak, last_poll: float | None
         ) -> bool:
+            if self._connected and monotonic_time_coarse() > self._connect_stop_at:
+                if not self._device.expected_disconnect:
+                    self._device._disconnect()
+                return False
             return (
-                hass.state == CoreState.running
+                not self._connected
+                and monotonic_time_coarse() >= self._next_poll
             )
 
         async def _async_poll(service_info: BluetoothServiceInfoBleak):
-            value=service_info
+            #if hass.state != CoreState.running:
+            #    return False
+            self._next_poll += self._min_poll_interval
+            print("poll")
+
+            if service_info.connectable:
+                connectable_device = service_info.device
+            elif device := async_ble_device_from_address(
+                hass, service_info.device.address, True
+            ):
+                connectable_device = device
+            else:
+                raise RuntimeError(
+                    f"No connectable device found for {service_info.device.address}"
+                )
+            self._device.set_device_and_advertisement_data(connectable_device, service_info.advertisement)
+            self._next_poll = monotonic_time_coarse() + self._min_poll_interval
+            entry.async_create_task(hass, self._device.update())
+#            entry.async_create_task(hass, self._device.update_dp(1))
+            return True
 
         super().__init__(
             hass,
@@ -162,48 +205,28 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[None]):
             address = address,
             needs_poll_method=_needs_poll,
             poll_method=_async_poll,
-            mode=bluetooth.BluetoothScanningMode.PASSIVE,
+            mode=bluetooth.BluetoothScanningMode.ACTIVE,
             connectable=True,
         )
 
-    @property
-    def connected(self) -> bool:
-        return not self._disconnected
-
     @callback
     def _async_handle_connect(self) -> None:
-        if self._unsub_disconnect is not None:
-            self._unsub_disconnect()
-        if self._disconnected:
-            self._disconnected = False
-            self.async_update_listeners()
+        self._connect_stop_at = monotonic_time_coarse()+self._max_connect_time
+        self._connected = True
 
     @callback
     def _async_handle_update(self, updates: list[Any]) -> None:
-        """Just trigger the callbacks."""
-        self._async_handle_connect()
-        self.async_set_updated_data(None)
+        print(updates)
+        pass
 
     @callback
     def _set_disconnected(self, _: None) -> None:
         """Invoke the idle timeout callback, called when the alarm fires."""
-        self._disconnected = True
-        self._unsub_disconnect = None
-        self.async_update_listeners()
 
     @callback
     def _async_handle_disconnect(self) -> None:
         """Trigger the callbacks for disconnected."""
-        if self._unsub_disconnect is None:
-            delay: float = SET_DISCONNECTED_DELAY
-            self._unsub_disconnect = async_call_later(
-                self.hass, delay, self._set_disconnected
-            )
-
-
-
-def get_short_address(address: str) -> str:
-    results = address.replace("-", ":").upper().split(":")
-    return f"{results[-3]}{results[-2]}{results[-1]}"[-6:]
+        self._connected = False
+        print("disconnect")
 
 

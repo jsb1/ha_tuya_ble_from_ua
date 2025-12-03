@@ -14,50 +14,44 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .tuya_ble.ble import TuyaBLEDevice, TuyaBLEDeviceCredentials
-from .tuya_ble.manager import TuyaBLEDeviceManager, TuyaBLECoordinator
+from .tuya_ble.manager import shared_tuya_device_manager, TuyaBLEDeviceManager, TuyaBLECoordinator
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+
 @dataclass
 class TuyaBLEData:
     """Data for the Tuya BLE integration."""
-
     title: str
-    device: TuyaBLEDevice
-    manager: TuyaBLEDeviceManager
     coordinator: TuyaBLECoordinator
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tuya BLE from a config entry."""
     address: str = entry.data[CONF_ADDRESS]
 
-    manager = TuyaBLEDeviceManager(hass)
-    device = await manager.create_device(address, entry.options)
-    coordinator = TuyaBLECoordinator(hass, device, address)
+    coordinator = TuyaBLECoordinator(hass, entry, address, entry.options)
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = TuyaBLEData(
         entry.title,
-        device,
-        manager,
         coordinator,
     )
 
-    entry.async_on_unload(
-        coordinator.async_start()
-    )
-
-    #await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    #entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    await hass.config_entries.async_forward_entry_setups(entry, [])
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     async def _async_stop(event: Event) -> None:
         """Close the connection."""
-        await device.stop()
+        await coordinator._async_stop()
 
     entry.async_on_unload(
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop)
     )
+    entry.async_on_unload(
+        coordinator.async_start()
+    )
+
     return True
 
 

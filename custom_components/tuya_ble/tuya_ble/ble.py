@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import hashlib
 import logging
 import secrets
@@ -65,6 +66,7 @@ from .const import (
     RESPONSE_WAIT_TIMEOUT,
     SERVICE_UUID,
     TuyaBLECode,
+    TuyaBLEDataPointType,
 )
 
 from .exceptions import (
@@ -82,17 +84,24 @@ BLEAK_EXCEPTIONS = (*BLEAK_RETRY_EXCEPTIONS, OSError)
 
 global_connect_lock = asyncio.Lock()
 
+@dataclass
+class TuyaBLEDataPoint:
+    id: int
+    _timestamp: float
+    flags: int
+    type: int
+    value: int
 
 class TuyaBLEDevice:
     def __init__(
         self,
         device_info: TuyaBLEDeviceCredentials,
-        ble_device: BLEDevice,
         advertisement_data: AdvertisementData | None = None,
     ) -> None:
         """Init the TuyaBLE."""
-        self._ble_device = ble_device
+        self._device_info = device_info
         self._advertisement_data = advertisement_data
+        self._ble_device = None
         self._operation_lock = asyncio.Lock()
         self._connect_lock = asyncio.Lock()
         self._client: BleakClientWithServiceCache | None = None
@@ -111,8 +120,6 @@ class TuyaBLEDevice:
         self._protocol_version_str: str = ""
         self._hardware_version: str = ""
 
-        self._device_info = device_info
-
         self._auth_key: bytes | None = None
         self._local_key: bytes | None = None
         self._login_key: bytes | None = None
@@ -123,22 +130,25 @@ class TuyaBLEDevice:
         self._input_buffer: bytearray | None = None
         self._input_expected_packet_num = 0
         self._input_expected_length = 0
-        self._input_expected_responses: dict[int,
-                                             asyncio.Future[int] | None] = {}
+        self._input_expected_responses: dict[int, asyncio.Future[int] | None] = {}
         # self._input_future: asyncio.Future[int] | None = None
 
-    def set_ble_device_and_advertisement_data(
+    def set_device_and_advertisement_data(
         self, ble_device: BLEDevice, advertisement_data: AdvertisementData
     ) -> None:
         """Set the ble device."""
         self._ble_device = ble_device
         self._advertisement_data = advertisement_data
+        if not self._login_key:
+             self.initialize()
 
-    async def initialize(self) -> bool:
-        _LOGGER.debug("%s: Initializing", self.address)
-        if await self._update_device_info():
+
+    def initialize(self) -> bool:
+        _LOGGER.debug("%s: Initializing", self._device_info.device_id)
+        if self._update_device_info():
             return self._decode_advertisement_data()
-        return False;
+        return False
+
     def _build_pairing_request(self) -> bytes:
         result = bytearray()
 
@@ -162,9 +172,15 @@ class TuyaBLEDevice:
 
     async def update(self) -> None:
         _LOGGER.debug("%s: Updating", self.address)
+        self._expected_disconnect = False
         await self._send_packet(TuyaBLECode.FUN_SENDER_DEVICE_STATUS, bytes())
 
-    async def _update_device_info(self) -> bool:
+    async def update_dp(self, dp: int) -> None:
+        _LOGGER.debug("%s: Updating", self.address)
+        self._expected_disconnect = False
+        await self._send_packet(TuyaBLECode.FUN_RECEIVE_DP, bytes(dp))
+
+    def _update_device_info(self) -> bool:
         if self._device_info:
             self._local_key = self._device_info.local_key[:6].encode()
             self._login_key = hashlib.md5(self._local_key).digest()
@@ -868,7 +884,7 @@ class TuyaBLEDevice:
     def _parse_datapoints_v3(
         self, timestamp: float, flags: int, data: bytes, start_pos: int
     ) -> int:
-        datapoints: list[TuyaBLEDataPoint] = []
+        datapoints: list[Any] = []
 
         pos = start_pos
         while len(data) - pos >= 4:
@@ -902,9 +918,11 @@ class TuyaBLEDevice:
                 type.name,
                 value,
             )
-            self._datapoints._update_from_device(
-                id, timestamp, flags, type, value)
-            datapoints.append(self._datapoints[id])
+            datapoints.append(
+                TuyaBLEDataPoint(
+                    id, timestamp, flags, type, value
+                )
+            )
             pos = next_pos
 
         self._fire_callbacks(datapoints)
@@ -979,8 +997,7 @@ class TuyaBLEDevice:
 
             case TuyaBLECode.FUN_RECEIVE_DP:
                 self._parse_datapoints_v3(time.time(), 0, data, 0)
-                asyncio.create_task(
-                    self._send_response(code, bytes(0), seq_num))
+                asyncio.create_task(self._send_response(code, bytes(0), seq_num))
 
             case TuyaBLECode.FUN_RECEIVE_SIGN_DP:
                 dp_seq_num = int.from_bytes(data[:2], "big")
