@@ -168,35 +168,31 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
         def _needs_poll(
             service_info: BluetoothServiceInfoBleak, last_poll: float | None
         ) -> bool:
+            return (
+                (not self._device._client or not self._device._client.is_connected)
+                and monotonic_time_coarse() >= self._next_poll
+            )
+
             if self._connected and monotonic_time_coarse() > self._connect_stop_at:
                 if not self._device.expected_disconnect:
                     entry.async_create_task(hass, self._device.disconnect())
                 return False
-            return (
-                not self._connected
-                and monotonic_time_coarse() >= self._next_poll
-            )
 
         async def _async_poll(service_info: BluetoothServiceInfoBleak):
             #if hass.state != CoreState.running:
             #    return False
-            self._next_poll += self._min_poll_interval
             print("poll")
 
             if service_info.connectable:
                 connectable_device = service_info.device
-            elif device := async_ble_device_from_address(
-                hass, service_info.device.address, True
-            ):
+            elif device := async_ble_device_from_address(hass, service_info.device.address, True):
                 connectable_device = device
             else:
-                raise RuntimeError(
-                    f"No connectable device found for {service_info.device.address}"
-                )
+                raise RuntimeError(f"No connectable device found for {service_info.device.address}")
             self._device.set_device_and_advertisement_data(connectable_device, service_info.advertisement)
             self._next_poll = monotonic_time_coarse() + self._min_poll_interval
-            #entry.async_create_task(hass, self._device.update())
-            entry.async_create_task(hass, self._device.update_dp(2))
+            entry.async_create_task(hass, self._device.update())
+            #entry.async_create_task(hass, self._device.update_dp(2))
             return True
 
         super().__init__(
@@ -213,10 +209,12 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
     def _async_handle_connect(self) -> None:
         self._connect_stop_at = monotonic_time_coarse()+self._max_connect_time
         self._connected = True
+        self._next_poll = monotonic_time_coarse() + self._min_poll_interval
 
     @callback
     def _async_handle_update(self, updates: list[Any]) -> None:
         print(updates)
+#        self._device._expected_disconnect=True
         pass
 
     @callback

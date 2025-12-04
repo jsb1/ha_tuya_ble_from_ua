@@ -932,6 +932,7 @@ class TuyaBLEDevice:
     ) -> None:
         result: int = 0
 
+        print("code ",code)
         match code:
             case TuyaBLECode.FUN_SENDER_DEVICE_INFO:
                 if len(data) < 46:
