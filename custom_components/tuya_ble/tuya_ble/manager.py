@@ -12,6 +12,7 @@ from bluetooth_data_tools import monotonic_time_coarse
 
 from homeassistant.components.bluetooth.active_update_coordinator import ActiveBluetoothDataUpdateCoordinator, BluetoothServiceInfoBleak
 from homeassistant.components.bluetooth.api import async_ble_device_from_address
+from homeassistant.components.bluetooth.manager import BaseHaScanner
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -163,25 +164,23 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
         self._min_poll_interval = 60
         self._next_poll = monotonic_time_coarse()
         self._max_connect_time = 10
-        self._connect_stop_at = monotonic_time_coarse()+self._max_connect_time
 
         def _needs_poll(
             service_info: BluetoothServiceInfoBleak, last_poll: float | None
         ) -> bool:
             return (
-                (not self._device._client or not self._device._client.is_connected)
-                and monotonic_time_coarse() >= self._next_poll
+                True
+                #monotonic_time_coarse() >= self._next_poll
             )
-
-            if self._connected and monotonic_time_coarse() > self._connect_stop_at:
-                if not self._device.expected_disconnect:
-                    entry.async_create_task(hass, self._device.disconnect())
-                return False
 
         async def _async_poll(service_info: BluetoothServiceInfoBleak):
             #if hass.state != CoreState.running:
             #    return False
+            if  monotonic_time_coarse() < self._next_poll:
+                print("skip poll")
+                return False
             print("poll")
+            scanner = bluetooth.async_scanner_by_source(hass, address)
 
             if service_info.connectable:
                 connectable_device = service_info.device
@@ -190,9 +189,13 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
             else:
                 raise RuntimeError(f"No connectable device found for {service_info.device.address}")
             self._device.set_device_and_advertisement_data(connectable_device, service_info.advertisement)
-            self._next_poll = monotonic_time_coarse() + self._min_poll_interval
-            entry.async_create_task(hass, self._device.update())
+
+            entry.async_create_task(hass, self._device._execute_timed_disconnect(15))
+            await self._device.update()
+            #entry.async_create_task(hass, self._device.update())
             #entry.async_create_task(hass, self._device.update_dp(2))
+            self._next_poll += self._min_poll_interval
+            print("poll done")
             return True
 
         super().__init__(
@@ -214,7 +217,6 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
     @callback
     def _async_handle_update(self, updates: list[Any]) -> None:
         print(updates)
-#        self._device._expected_disconnect=True
         pass
 
     @callback
