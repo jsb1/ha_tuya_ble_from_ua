@@ -22,9 +22,9 @@ from .ble import TuyaBLEDeviceCredentials
 from bleak_retry_connector import get_device
 from homeassistant.components import bluetooth
 from homeassistant.const import CONF_ADDRESS, CONF_DEVICE_ID
-from homeassistant.components.tuya.const import DOMAIN as EXT_DOMAIN;
 from tuya_sharing.device import CustomerDevice
 from tuya_sharing.manager import Manager
+EXT_DOMAIN='tuya'
 
 from homeassistant.core import CALLBACK_TYPE, CoreState, HomeAssistant, callback
 
@@ -163,22 +163,20 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
         self._device.register_disconnected_callback(self._async_handle_disconnect)
         self._min_poll_interval = 60
         self._next_poll = monotonic_time_coarse()
-        self._max_connect_time = 10
+        self._max_connect_time = 15
 
         def _needs_poll(
             service_info: BluetoothServiceInfoBleak, last_poll: float | None
         ) -> bool:
-            return (
-                True
-                #monotonic_time_coarse() >= self._next_poll
-            )
+            needs_poll = monotonic_time_coarse() >= self._next_poll
+            if needs_poll:
+                self._next_poll += self._min_poll_interval
+            print("needs poll")
+            return needs_poll
 
         async def _async_poll(service_info: BluetoothServiceInfoBleak):
             #if hass.state != CoreState.running:
             #    return False
-            if  monotonic_time_coarse() < self._next_poll:
-                print("skip poll")
-                return False
             print("poll")
             scanner = bluetooth.async_scanner_by_source(hass, address)
 
@@ -190,11 +188,10 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
                 raise RuntimeError(f"No connectable device found for {service_info.device.address}")
             self._device.set_device_and_advertisement_data(connectable_device, service_info.advertisement)
 
-            entry.async_create_task(hass, self._device._execute_timed_disconnect(15))
+            entry.async_create_task(hass, self._device._execute_timed_disconnect(self._max_connect_time))
             await self._device.update()
             #entry.async_create_task(hass, self._device.update())
             #entry.async_create_task(hass, self._device.update_dp(2))
-            self._next_poll += self._min_poll_interval
             print("poll done")
             return True
 

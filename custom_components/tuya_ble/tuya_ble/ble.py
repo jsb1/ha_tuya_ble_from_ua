@@ -13,6 +13,7 @@ from typing import Any
 
 from bleak.backends.device import BLEDevice
 from bleak.backends.scanner import AdvertisementData
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.exc import BleakDBusError
 from bleak_retry_connector import BLEAK_BACKOFF_TIME
 from bleak_retry_connector import BLEAK_RETRY_EXCEPTIONS
@@ -131,7 +132,6 @@ class TuyaBLEDevice:
         self._input_expected_packet_num = 0
         self._input_expected_length = 0
         self._input_expected_responses: dict[int, asyncio.Future[int] | None] = {}
-        self._outstanding_dp: set[int] = set()
 
         # self._input_future: asyncio.Future[int] | None = None
 
@@ -164,9 +164,6 @@ class TuyaBLEDevice:
 
     async def update(self) -> None:
         _LOGGER.debug("%s: Updating", self.address)
-        self._outstanding_dp.clear()
-        for key in self._device_info.local_strategy.keys():
-            self._outstanding_dp.add(int(key))
         await self._ensure_connected()
 
     def _update_device_info(self) -> bool:
@@ -732,14 +729,9 @@ class TuyaBLEDevice:
                     id, timestamp, flags, type, value
                 )
             )
-            if id in self._outstanding_dp:
-                self._outstanding_dp.remove(id) 
             pos = next_pos
 
         self._fire_callbacks(datapoints)
-        if not self._outstanding_dp or len(self._outstanding_dp)==0:
-            await self._execute_disconnect()
-        print(self._outstanding_dp)
 
     async def _handle_command_or_response(
         self, seq_num: int, response_to: int, code: TuyaBLECode, data: bytes
@@ -939,9 +931,8 @@ class TuyaBLEDevice:
 
         await self._handle_command_or_response(seq_num, response_to, code, data)
 
-    def _notification_handler(self, _sender: int, data: bytearray) -> None:
+    def _notification_handler(self, _sender: BleakGATTCharacteristic, data: bytearray) -> None:
         """Handle notification responses."""
-        _LOGGER.debug("%s: Packet received: %s", self.address, data.hex())
 
         pos: int = 0
         packet_num: int
