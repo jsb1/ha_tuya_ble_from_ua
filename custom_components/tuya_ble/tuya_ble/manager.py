@@ -131,7 +131,7 @@ class TuyaBLEDeviceManager:
                 self._mac_mapping[discovery_info.address] = credentials
                 return credentials
         return None
-    
+
     def create_device(self, address: str, data: dict[str, Any]):
         if CONF_LOCAL_KEY not in data:
             return None
@@ -168,13 +168,17 @@ class TuyaBLECoordinator(ActiveBluetoothDataUpdateCoordinator[bool]):
         def _needs_poll(
             service_info: BluetoothServiceInfoBleak, last_poll: float | None
         ) -> bool:
-            needs_poll = monotonic_time_coarse() >= self._next_poll
+            t = monotonic_time_coarse()
+            dt = t-self._next_poll
+            needs_poll = dt > 0
             if needs_poll:
-                self._next_poll += self._min_poll_interval
-            print("needs poll")
+                self._next_poll = t + self._min_poll_interval
+            else:
+                print("poll skipped", dt)
             return needs_poll
 
         async def _async_poll(service_info: BluetoothServiceInfoBleak):
+            #print("needs poll", needs_poll)
             #if hass.state != CoreState.running:
             #    return False
             print("poll")
